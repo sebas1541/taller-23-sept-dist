@@ -26,10 +26,14 @@ services:
       - "traefik.http.routers.dashboard.rule=Host(`ops.localhost`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
       - "traefik.http.routers.dashboard.service=api@internal"
       - "traefik.http.middlewares.dashboard-strip.stripprefix.prefixes=/dashboard"
-      - "traefik.http.routers.dashboard.middlewares=auth,dashboard-strip"
-      # Basic Auth middleware (user: admin, password: secret)
-      # Generated with: htpasswd -nbB admin secret | sed -e 's/\$/\$\$/g'
-      - "traefik.http.middlewares.auth.basicauth.users=admin:$$2b$$10$$8K1p/wFIiUy1nF8J6azqg.dkQXGGpJt4GOfcSYF.HFgvL7CrGgTOa"
+      - "traefik.http.routers.dashboard.middlewares=auth,dashboard-strip,dashboard-errors"
+      # Basic Auth middleware (user: admin, password: secret)  
+      # Generated fresh with htpasswd -nbB admin secret | sed -e 's/\$/\$\$/g'
+      - "traefik.http.middlewares.auth.basicauth.users=admin:$$2y$$05$$0LmEaZ57.5eAq196BHcvY.DdlFkxd4pXMM9/XXqySzNHlvTgnYzZi"
+      # Error handling middleware for dashboard
+      - "traefik.http.middlewares.dashboard-errors.errors.status=400-599"
+      - "traefik.http.middlewares.dashboard-errors.errors.service=error-pages"
+      - "traefik.http.middlewares.dashboard-errors.errors.query=/{status}.html"
 
   neo4j:
     image: neo4j:5.22.0-community
@@ -50,6 +54,17 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  error-pages:
+    build: ./error-pages
+    container_name: error_pages
+    restart: unless-stopped
+    networks:
+      - traefik-network
+    labels:
+      - "traefik.enable=true"
+      # Error pages service configuration
+      - "traefik.http.services.error-pages.loadbalancer.server.port=80"
 
   flask_api:
     build: ./flask-api
@@ -77,13 +92,17 @@ services:
       # API Router
       - "traefik.http.routers.api.rule=Host(`api.localhost`)"
       - "traefik.http.routers.api.entrypoints=web"
-      - "traefik.http.routers.api.middlewares=api-ratelimit"
+      - "traefik.http.routers.api.middlewares=api-ratelimit,api-errors"
       # Service configuration
       - "traefik.http.services.api.loadbalancer.server.port=5000"
       # Rate limiting middleware (10 requests per second)
       - "traefik.http.middlewares.api-ratelimit.ratelimit.average=10"
       - "traefik.http.middlewares.api-ratelimit.ratelimit.period=1s"
       - "traefik.http.middlewares.api-ratelimit.ratelimit.burst=20"
+      # Error handling middleware
+      - "traefik.http.middlewares.api-errors.errors.status=400-599"
+      - "traefik.http.middlewares.api-errors.errors.service=error-pages"
+      - "traefik.http.middlewares.api-errors.errors.query=/{status}.html"
 
 networks:
   traefik-network:
